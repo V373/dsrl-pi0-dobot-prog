@@ -320,6 +320,7 @@ def make_visual(q_estimates, rewards, masks, images):
 
     assert len(images.shape) == 5
     images = images[..., -1]  # only taking the most recent image of the stack
+    images = images[..., :3]  # the first camera is the agent view
     assert images.shape[-1] == 3
 
     interval = max(1, images.shape[0] // 4)

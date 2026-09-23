@@ -13,7 +13,9 @@ from moviepy.editor import ImageSequenceClip
 
 
 def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_replay_buffer, replay_buffer, wandb_logger,
-                                       shard_fn=None, agent_dp=None, robot_config=None):
+                                       shard_fn=None, agent_dp=None, robot_config=None, collect_fn=None):
+    if collect_fn is None:
+        collect_fn = collect_traj
     replay_buffer_iterator = replay_buffer.get_iterator(variant.batch_size)
     if shard_fn is not None:
         replay_buffer_iterator = map(shard_fn, replay_buffer_iterator)
@@ -27,7 +29,7 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
    
     with tqdm(total=variant.max_steps, initial=0) as pbar:
         while i <= variant.max_steps:
-            traj = collect_traj(variant, agent, env, i, agent_dp, wandb_logger, total_num_traj, robot_config)
+            traj = collect_fn(variant, agent, env, i, agent_dp, wandb_logger, total_num_traj, robot_config)
             total_num_traj += 1
             add_online_data_to_buffer(variant, traj, online_replay_buffer)
             total_env_steps += traj['env_steps']
@@ -79,6 +81,10 @@ def add_online_data_to_buffer(variant, traj, online_replay_buffer):
     episode_len = len(actions)
     rewards = np.array(traj['rewards'])
     masks = np.array(traj['masks'])
+    query_step_lengths = traj.get('query_step_lengths')
+    if query_step_lengths is not None:
+        if len(query_step_lengths) != episode_len or any(steps < 1 for steps in query_step_lengths):
+            raise ValueError('query_step_lengths must contain one positive count per SAC action')
 
     for t in range(episode_len):
         obs = traj['observations'][t]
@@ -97,7 +103,7 @@ def add_online_data_to_buffer(variant, traj, online_replay_buffer):
             next_actions=actions[t + 1] if t < episode_len - 1 else actions[t],
             rewards=rewards[t],
             masks=masks[t],
-            discount=variant.discount ** discount_horizon
+            discount=variant.discount ** (query_step_lengths[t] if query_step_lengths is not None else discount_horizon)
         )
         online_replay_buffer.insert(insert_dict)
     online_replay_buffer.increment_traj_counter()

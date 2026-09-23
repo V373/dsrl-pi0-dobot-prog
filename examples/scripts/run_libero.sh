@@ -1,6 +1,9 @@
 #!/bin/bash
 proj_name=DSRL_pi0_Libero
 device_id=0
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+cd "$project_root"
 
 export DISPLAY=:0
 export MUJOCO_GL=egl
@@ -12,9 +15,9 @@ export EXP=./logs/$proj_name;
 export CUDA_VISIBLE_DEVICES=$device_id
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
-pip install mujoco==3.3.1
+python -m pip install mujoco==3.3.1
 
-python3 examples/launch_train_sim.py \
+python -m examples.launch_train_sim \
 --algorithm pixel_sac \
 --env libero \
 --prefix dsrl_pi0_libero \
