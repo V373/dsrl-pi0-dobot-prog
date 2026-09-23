@@ -43,7 +43,6 @@ cd dsrl_pi0
 ```
 pip install -e .
 pip install -r requirements.txt
-pip install "jax[cuda12]==0.5.1"
 
 # install openpi
 pip install -e openpi
@@ -51,6 +50,9 @@ pip install -e openpi/packages/openpi-client
 
 # install Libero
 pip install -e LIBERO
+
+# RTX 5090: pin compatible versions after installing openpi
+pip install "jax[cuda12]==0.5.1" "wandb[media]==0.19.9" "protobuf>=3.20.3,<6"
 pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu # needed for libero
 ```
 
