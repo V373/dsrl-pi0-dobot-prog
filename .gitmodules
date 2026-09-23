@@ -1,6 +1,8 @@
 [submodule "LIBERO"]
 	path = LIBERO
-	url = git@github.com:nakamotoo/LIBERO.git
+	url = https://github.com/V373/dsrl-pi0-dobot-prog.git
+	branch = libero-source
 [submodule "openpi"]
 	path = openpi
-	url = git@github.com:nakamotoo/openpi.git
+	url = https://github.com/V373/dsrl-pi0-dobot-prog.git
+	branch = openpi-source
