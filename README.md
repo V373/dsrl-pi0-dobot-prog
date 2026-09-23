@@ -99,7 +99,7 @@ python3 examples/serve_lerobot_pi0_dobot.py \
 在机器人端修改 `examples/scripts/run_real_dobot.sh`，再运行 `bash examples/scripts/run_real_dobot.sh`。主要参数都在该脚本中：
 
 - 接口与任务：`robot_factory`（默认 `examples.dobot_data_wrapper:create_robot`）、`remote_host`/`remote_port`、`instruction`，以及本机 GPU 的 `device_id`。
-- 采集：`run_real_dobot.sh` 当前设置 `control_hz=25`（launcher 默认 15 Hz）；`max_timesteps=200` 为**每条轨迹最多控制步数**，不是实际时间超时；`query_freq=10` 为 π₀ 查询间隔，须不大于 checkpoint 的动作序列长度。
+- 采集：Dobot 启动脚本和 launcher 默认都使用 `control_hz=25`；`max_timesteps=200` 为**每条轨迹最多控制步数**，不是实际时间超时；`query_freq=10` 为 π₀ 查询间隔，须不大于 checkpoint 的动作序列长度。
 - SAC：`resize_image=128`、`batch_size=256`、`discount=0.99`、`multi_grad_step=30`；`max_steps=500000` 计 **SAC 梯度更新次数**，不是机器人步数。
 
 一轮 online 训练：

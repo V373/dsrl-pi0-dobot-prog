@@ -19,7 +19,7 @@ def parse_args(argv=None):
     parser.add_argument("--remote_host", "--remote-host", default="127.0.0.1")
     parser.add_argument("--remote_port", "--remote-port", type=int, default=8000)
     parser.add_argument("--instruction", required=True)
-    parser.add_argument("--control_hz", "--control-hz", type=float, default=15.0)
+    parser.add_argument("--control_hz", "--control-hz", type=float, default=25.0)
     parser.add_argument("--max_timesteps", "--max-timesteps", type=int, default=200,
                         help="Maximum robot control steps in one rollout, not a wall-clock timeout")
     parser.add_argument("--query_freq", "--query-freq", type=int, default=10)
