@@ -48,7 +48,6 @@ python3 examples/launch_train_real_dobot.py \
   --discount 0.99 \
   --seed 0 \
   --max_steps 500000 \
-  --eval_interval 2000 \
   --log_interval 100 \
   --multi_grad_step 30 \
   --resize_image 128 \

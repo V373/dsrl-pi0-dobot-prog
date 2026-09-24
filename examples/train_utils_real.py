@@ -4,6 +4,7 @@ from tqdm import tqdm
 import time
 import numpy as np
 import jax
+import wandb
 import sys
 import select
 import tty
@@ -11,10 +12,12 @@ import termios
 from openpi_client import image_tools
 from moviepy.editor import ImageSequenceClip
 
+from examples.dobot_progress_video import save_dobot_progress_video
+
 
 def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_replay_buffer, replay_buffer, wandb_logger,
                                        shard_fn=None, agent_dp=None, robot_config=None, collect_fn=None,
-                                       reward_plugin=None):
+                                       reward_plugin=None, dobot_logging=False):
     if collect_fn is None:
         collect_fn = collect_traj
     replay_buffer_iterator = replay_buffer.get_iterator(variant.batch_size)
@@ -24,9 +27,12 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
     i = 0
     total_env_steps = 0
     total_num_traj = 0
-    wandb_logger.log({'num_online_samples': 0}, step=i)
-    wandb_logger.log({'num_online_trajs': 0}, step=i)
-    wandb_logger.log({'env_steps': 0}, step=i)
+    if dobot_logging:
+        wandb_logger.log({'replay_buffer_size': 0, 'env_control_steps': 0}, step=i)
+    else:
+        wandb_logger.log({'num_online_samples': 0}, step=i)
+        wandb_logger.log({'num_online_trajs': 0}, step=i)
+        wandb_logger.log({'env_steps': 0}, step=i)
    
     with tqdm(total=variant.max_steps, initial=0) as pbar:
         while i <= variant.max_steps:
@@ -34,9 +40,44 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
             if reward_plugin is not None:
                 reward_metrics = reward_plugin.apply(traj, env.prepare_progress_frame)
                 wandb_logger.log(reward_metrics, step=i)
+                if dobot_logging:
+                    progress_video_data = traj.pop('progress_video_data')
+                    raw_video_path = traj.pop('rollout_video_path')
+                    progress_video_path = os.path.join(
+                        variant.outputdir, f'video_agent_rollout{total_num_traj}_progress.mp4')
+                    try:
+                        save_dobot_progress_video(
+                            raw_video_path=raw_video_path,
+                            output_path=progress_video_path,
+                            query_step_lengths=traj['query_step_lengths'],
+                            progress_gated=progress_video_data['progress_gated'],
+                            is_ood=progress_video_data['is_ood'],
+                            conformal_p_value=progress_video_data['conformal_p_value'],
+                            bin_progress_values=progress_video_data['bin_progress_values'],
+                            rewards=traj['rewards'],
+                            is_success=traj['is_success'],
+                            reward_type=reward_plugin.reward_type,
+                            fps=variant.control_hz,
+                        )
+                    except Exception as exc:
+                        print(f'Failed to render rollout progress video {progress_video_path}: {exc}')
+                    else:
+                        try:
+                            wandb_logger.log({
+                                'rollout/progress_video': wandb.Video(
+                                    progress_video_path, fps=variant.control_hz,
+                                    format='mp4'),
+                            }, step=i)
+                        except Exception as exc:
+                            print(f'Failed to upload rollout progress video {progress_video_path}: {exc}')
             total_num_traj += 1
             add_online_data_to_buffer(variant, traj, online_replay_buffer)
             total_env_steps += traj['env_steps']
+            if dobot_logging:
+                wandb_logger.log({
+                    'replay_buffer_size': len(online_replay_buffer),
+                    'env_control_steps': total_env_steps,
+                }, step=i)
             print('online buffer timesteps length:', len(online_replay_buffer))
             print('online buffer num traj:', total_num_traj)
             print('total env steps:', total_env_steps)
@@ -62,12 +103,12 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
                                 wandb_logger.log({f'training/{k}': v}, step=i)
                             elif v.ndim <= 2:
                                 wandb_logger.log_histogram(f'training/{k}', v, i)
-                        wandb_logger.log({
-                            'replay_buffer_size': len(online_replay_buffer),
-                            'is_success (exploration)': int(traj['is_success']),
-                        }, i)
+                        log_metrics = {'is_success (exploration)': int(traj['is_success'])}
+                        if not dobot_logging:
+                            log_metrics['replay_buffer_size'] = len(online_replay_buffer)
+                        wandb_logger.log(log_metrics, step=i)
 
-                    if i % variant.eval_interval == 0:
+                    if not dobot_logging and i % variant.eval_interval == 0:
                         wandb_logger.log({'num_online_samples': len(online_replay_buffer)}, step=i)
                         wandb_logger.log({'num_online_trajs': total_num_traj}, step=i)
                         wandb_logger.log({'env_steps': total_env_steps}, step=i)

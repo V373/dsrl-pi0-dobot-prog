@@ -103,7 +103,7 @@ def test_dobot_trajectory_and_replay(monkeypatch, tmp_path, training_step, keys,
             robot.events.append("video")
 
         def write_videofile(self, path, codec):
-            assert path == str(tmp_path / "video_high_0.mp4")
+            assert path == str(tmp_path / "video_agent_rollout0.mp4")
             assert codec == "libx264"
 
     monkeypatch.setattr(train_real_dobot, "ImageSequenceClip", FakeClip)

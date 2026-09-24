@@ -81,13 +81,19 @@ class DobotShapedReward:
             raise TypeError("Dobot wrapper must provide prepare_progress_frame()")
 
         progress = np.empty(count, dtype=np.float64)
+        is_ood = np.empty(count, dtype=bool)
+        conformal_p_values = []
         for index, frame in enumerate(frames):
             prepared = preprocess_frame(frame)
             if index == 0:
-                inferred = self.provider.reset_all([prepared])
+                inferred, diagnostics = self.provider.reset_all(
+                    [prepared], return_diagnostics=True)
             else:
-                inferred = self.provider.advance_all([prepared])
+                inferred, diagnostics = self.provider.advance_all(
+                    [prepared], return_diagnostics=True)
             progress[index] = float(inferred[0])
+            is_ood[index] = bool(diagnostics["is_ood"][0])
+            conformal_p_values.append(diagnostics["conformal_p_value"][0])
         if not np.isfinite(progress).all():
             raise ValueError("Inferred progress contains NaN or Inf")
 
@@ -107,11 +113,16 @@ class DobotShapedReward:
             raise ValueError("Shaped rewards contain NaN or Inf")
 
         traj["rewards"] = rewards
+        traj["progress_video_data"] = {
+            "progress_gated": progress.astype(np.float32),
+            "is_ood": is_ood,
+            "conformal_p_value": np.asarray(conformal_p_values, dtype=np.float32),
+            "bin_progress_values": np.asarray(
+                self.provider.gaussian_model["bin_progress_values"], dtype=np.float32),
+        }
         del traj["reward_frames"]
         return {
             "shaped_reward/episode_return": float(rewards.sum()),
             "shaped_reward/sparse_return": float(sparse.sum()),
             "shaped_reward/shaping_return": float(shaping.sum()),
-            "shaped_reward/progress_first_query": float(progress[0]),
-            "shaped_reward/progress_last_query": float(progress[-1]),
         }

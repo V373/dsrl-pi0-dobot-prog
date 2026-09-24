@@ -525,7 +525,7 @@ class BatchedGaussianProgressGatedProvider:
         self._last_in_distribution = torch.where(
             is_ood, self._last_in_distribution, progress)
         self._last_is_ood = is_ood
-        return self._last_in_distribution, progress, is_ood
+        return self._last_in_distribution, progress, is_ood, p_values
 
     def _finalize_trace(self, progress_raw, is_ood_raw):
         if not self.enable_ood_filter:
@@ -547,7 +547,7 @@ class BatchedGaussianProgressGatedProvider:
         progress_final = _compute_progress_gated(progress_raw, is_ood_final)
         return progress_final, is_ood_final
 
-    def advance_all(self, frames, reset_mask=None):
+    def advance_all(self, frames, reset_mask=None, *, return_diagnostics=False):
         if reset_mask is None:
             if self.progress_current is None:
                 raise RuntimeError("Provider must be reset before advance_all")
@@ -576,22 +576,29 @@ class BatchedGaussianProgressGatedProvider:
                 torch.zeros_like(self._last_in_distribution),
                 self._last_in_distribution)
             self._frame_ring[self._env_indices, self._head] = self._write_frames(frames)
-            inferred_progress, progress_raw, is_ood_raw = self._infer_batch()
+            inferred_progress, progress_raw, is_ood_raw, p_values = self._infer_batch()
             if self.enable_ood_filter:
-                progress_raw = progress_raw.cpu().numpy()
-                is_ood_raw = is_ood_raw.cpu().numpy()
+                progress_raw_numpy = progress_raw.cpu().numpy()
+                is_ood_raw_numpy = is_ood_raw.cpu().numpy()
                 for env_index in range(self.n_envs):
                     self._episode_progress_raw_by_env[env_index].append(
-                        float(progress_raw[env_index]))
+                        float(progress_raw_numpy[env_index]))
                     self._episode_is_ood_raw_by_env[env_index].append(
-                        bool(is_ood_raw[env_index]))
+                        bool(is_ood_raw_numpy[env_index]))
             self.progress_current = inferred_progress.cpu().numpy()
+            if return_diagnostics:
+                diagnostics = {
+                    "is_ood": is_ood_raw.cpu().numpy().copy(),
+                    "conformal_p_value": p_values.cpu().numpy().copy(),
+                }
+                return self.progress_current, diagnostics
         return self.progress_current
 
-    def reset_all(self, frames):
+    def reset_all(self, frames, *, return_diagnostics=False):
         self.progress_current = None
         return self.advance_all(
-            frames, reset_mask=np.ones(self.n_envs, dtype=bool))
+            frames, reset_mask=np.ones(self.n_envs, dtype=bool),
+            return_diagnostics=return_diagnostics)
 
     def finalize_episode(self, env_index=None):
         """Finalize one environment's complete progress trajectory."""

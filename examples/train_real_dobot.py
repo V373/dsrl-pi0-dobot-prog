@@ -23,6 +23,7 @@ from functools import partial
 import gym
 import jax
 import numpy as np
+import wandb
 from gym.spaces import Box, Dict
 from moviepy.editor import ImageSequenceClip
 from openpi_client import image_tools
@@ -171,8 +172,10 @@ def collect_traj_dobot(variant, agent, env, i, agent_dp, wandb_logger, traj_id, 
         masks[-1] = 0
     if wandb_logger is not None:
         wandb_logger.log({"is_success": int(is_success), "total_num_traj": traj_id}, step=i)
-    video_path = os.path.join(variant.outputdir, f"video_high_{traj_id}.mp4")
+    video_path = os.path.join(variant.outputdir, f"video_agent_rollout{traj_id}.mp4")
     ImageSequenceClip(video_frames, fps=variant.control_hz).write_videofile(video_path, codec="libx264")
+    if wandb_logger is not None:
+        wandb_logger.log({"video_agent_rollout": wandb.Video(video_path, fps=variant.control_hz)}, step=i)
     env.reset()
     print("Episode done. Enter 'c' in pdb to continue training.")
     pdb.set_trace()
@@ -187,6 +190,7 @@ def collect_traj_dobot(variant, agent, env, i, agent_dp, wandb_logger, traj_id, 
     }
     if reward_frames is not None:
         traj["reward_frames"] = reward_frames
+        traj["rollout_video_path"] = video_path
     return traj
 
 
@@ -326,6 +330,7 @@ def main(variant):
             variant, agent, robot, robot, buffer, buffer, logger,
             shard_fn=shard_fn, agent_dp=client, robot_config=robot_config,
             collect_fn=collect_traj_dobot, reward_plugin=reward_plugin,
+            dobot_logging=True,
         )
     finally:
         if callable(getattr(robot, "close", None)):

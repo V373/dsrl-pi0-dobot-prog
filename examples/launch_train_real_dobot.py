@@ -29,7 +29,6 @@ def parse_args(argv=None):
     parser.add_argument("--max_steps", "--max-steps", type=int, default=500000)
     parser.add_argument("--multi_grad_step", "--multi-grad-step", type=int, default=30)
     parser.add_argument("--log_interval", "--log-interval", type=int, default=100)
-    parser.add_argument("--eval_interval", "--eval-interval", type=int, default=2000)
     parser.add_argument("--discount", type=float, default=0.99)
     parser.add_argument("--action_magnitude", "--action-magnitude", type=float, default=2.5)
     parser.add_argument("--hidden_dims", "--hidden-dims", type=int, nargs="+", default=[1024])
