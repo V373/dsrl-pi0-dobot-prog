@@ -101,6 +101,7 @@ def collect_traj_dobot(variant, agent, env, i, agent_dp, wandb_logger, traj_id, 
     observations = []
     query_step_lengths = []
     video_frames = []
+    reward_frames = [] if getattr(variant, "reward_type", "sparse") != "sparse" else None
     action_chunk = None
     period = 1.0 / variant.control_hz
     env_steps = 0
@@ -138,6 +139,8 @@ def collect_traj_dobot(variant, agent, env, i, agent_dp, wandb_logger, traj_id, 
                     observations.append(sac_obs)
                     actions_noise.append(steering)
                     query_step_lengths.append(0)
+                    if reward_frames is not None:
+                        reward_frames.append(video_frames[-1])
 
                 env.step(action_chunk[t % query_freq])
                 env_steps += 1
@@ -173,7 +176,7 @@ def collect_traj_dobot(variant, agent, env, i, agent_dp, wandb_logger, traj_id, 
     env.reset()
     print("Episode done. Enter 'c' in pdb to continue training.")
     pdb.set_trace()
-    return {
+    traj = {
         "observations": observations,
         "actions": actions_noise,
         "rewards": rewards,
@@ -182,6 +185,9 @@ def collect_traj_dobot(variant, agent, env, i, agent_dp, wandb_logger, traj_id, 
         "env_steps": env_steps,
         "query_step_lengths": query_step_lengths,
     }
+    if reward_frames is not None:
+        traj["reward_frames"] = reward_frames
+    return traj
 
 
 def _robot_factory(path):
@@ -216,6 +222,27 @@ def main(variant):
     variant.restore_path = ""
     variant.suffix = ""
     variant.launch_group_id = ""
+
+    reward_type = getattr(variant, "reward_type", "sparse")
+    if reward_type not in ("sparse", "dense", "pbrs"):
+        raise ValueError("reward_type must be sparse, dense, or pbrs")
+    reward_plugin = None
+    if reward_type != "sparse":
+        from shaped_reward.dobot import DobotShapedReward
+
+        reward_plugin = DobotShapedReward(
+            reward_type=reward_type,
+            checkpoint_path=variant.reward_checkpoint,
+            gaussian_model_h5_path=variant.reward_gaussian_h5,
+            calibration_h5_path=variant.reward_calibration_h5,
+            context_stride=variant.reward_context_stride,
+            query_freq=variant.query_freq,
+            discount=variant.discount,
+            device=variant.reward_device,
+            ood_p_value_threshold=variant.reward_ood_threshold,
+            posterior_temperature=variant.reward_posterior_temperature,
+            shaping_scale=variant.reward_shaping_scale,
+        )
 
     kwargs = dict(
         actor_lr=1e-4, critic_lr=3e-4, temp_lr=3e-4,
@@ -282,11 +309,23 @@ def main(variant):
     robot = _robot_factory(variant.robot_factory)
     robot_config = {"action_horizon": horizon, "noise_dim": noise_dim, "feature_dim": feature_dim}
     try:
+        if reward_plugin is not None and not callable(getattr(robot, "prepare_progress_frame", None)):
+            raise TypeError("Shaped reward requires robot.prepare_progress_frame()")
         robot.reset()
+        if reward_plugin is not None:
+            initial_obs = _validated_observation(robot.get_observation())
+            initial_frame = np.asarray(
+                robot.prepare_progress_frame(initial_obs["external_rgb"])
+            )
+            if initial_frame.shape != (224, 224, 3) or initial_frame.dtype != np.uint8:
+                raise ValueError(
+                    "prepare_progress_frame() must return a 224x224 RGB uint8 frame, "
+                    f"got {initial_frame.shape} {initial_frame.dtype}"
+                )
         trajwise_alternating_training_loop(
             variant, agent, robot, robot, buffer, buffer, logger,
             shard_fn=shard_fn, agent_dp=client, robot_config=robot_config,
-            collect_fn=collect_traj_dobot,
+            collect_fn=collect_traj_dobot, reward_plugin=reward_plugin,
         )
     finally:
         if callable(getattr(robot, "close", None)):

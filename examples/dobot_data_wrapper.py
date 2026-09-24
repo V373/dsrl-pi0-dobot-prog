@@ -14,6 +14,7 @@ The two raw camera resolutions may differ. Downstream, train_real_dobot.py
 resizes both to S x S and forms SAC pixels (1, S, S, 6, 1). It concatenates
 the seven robot-state values with a pi0 prefix feature of checkpoint-dependent
 size F to form SAC state (1, 7 + F, 1).
+Shaped reward expects external_rgb to be the uncropped 640x480 topFullImg.
 
 Action passed to step(): (7,), finite float32, one pi0 robot action per control
 step. The pi0 server returns an action chunk (horizon, 7); SAC's separate
@@ -50,6 +51,17 @@ class DobotDataWrapper:
                 raise ValueError(f"{name} must contain {size} finite values, got {value.shape}")
             observation[name] = value
         return observation
+
+    @staticmethod
+    def prepare_progress_frame(external_rgb):
+        """Match FineProg fruit videos: crop the 640x480 topFullImg RGB frame."""
+        frame = np.asarray(external_rgb)
+        if frame.shape != (480, 640, 3) or frame.dtype != np.uint8:
+            raise ValueError(
+                "Progress input must be a 480x640 RGB uint8 topFullImg frame, "
+                f"got {frame.shape} {frame.dtype}"
+            )
+        return np.ascontiguousarray(frame[168:392, 256:480])
 
     def step(self, action):
         """Forward one unbatched pi0 action, shape (7,), unchanged."""

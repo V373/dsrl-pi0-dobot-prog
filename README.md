@@ -111,3 +111,9 @@ python3 examples/serve_lerobot_pi0_dobot.py \
 3. 首条轨迹后执行 5000 次 SAC 更新；此后每条轨迹执行 `转移数 × multi_grad_step` 次，随机采样 `batch_size` 条转移更新 SAC。完整 200 控制步通常对应 20 条转移、后续 600 次更新。
 
 SDK 接口集中在 `examples/dobot_data_wrapper.py`：补全连接与相机初始化、`_receive_observation()`、`_send_action()`、`reset()`、`halt()`、`close()`。观测需提供 `external_rgb`、`wrist_rgb`（HWC、`uint8`、RGB）、`joint_position`（6 维）和 `gripper_position`（1 维）；`step(action)` 接收单条 7 维 π₀ 动作。关节/夹爪顺序与单位、动作含义、相机预处理必须匹配 SFT checkpoint，发送动作时还需校验硬件限位与命令回执。当前模板未接入 SDK，不能直接运行真机训练。
+
+### Dobot shaped reward（可选）
+
+在 `examples/scripts/run_real_dobot.sh` 中将 `reward_type` 改为 `dense` 或 `pbrs`，并填写 `reward_checkpoint`、`reward_gaussian_h5`、`reward_calibration_h5` 三个来自同一 FineProg 实验的文件。`reward_context_stride` 填模型训练时的帧间隔（如 10 或 20）；它必须是 `query_freq` 的正整数倍。`reward_device` 默认 `cuda`，也可显式设为 `cpu`。推理端需要 PyTorch、与其版本匹配的 `torchvision`、`h5py` 和 `scipy`。不启用插件时保持原有 `-1/0` reward。
+
+插件只在 π₀ 查询位置读取外部相机帧。`DobotDataWrapper.prepare_progress_frame()` 从未经裁剪的 `640×480` RGB `topFullImg` 取 `[168:392, 256:480]`，得到与 FineProg `fruit_expert_videos_260917` 一致的 `224×224` 模型输入。rollout 结束后，插件推理这些查询帧的 progress，并在入池前赋值 reward：`dense = sparse + scale × progress`；`pbrs = sparse + scale × (discount^实际控制步数 × mask × next_progress − progress)`。这里 shaped reward 的 sparse 为成功末次 `1`、其余 `0`。末尾观测仍存入 replay，但不参与 progress 推理；最后一条转移需要 `next_progress` 时复用最后一次查询的 progress。失败末次的 `mask` 保持为 `1`。

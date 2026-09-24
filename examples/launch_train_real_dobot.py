@@ -36,6 +36,15 @@ def parse_args(argv=None):
     parser.add_argument("--num_qs", "--num-qs", type=int, default=2)
     parser.add_argument("--prefix", default="dsrl_pi0_dobot")
     parser.add_argument("--wandb_project", "--wandb-project", default="DSRL_pi0_Dobot")
+    parser.add_argument("--reward_type", "--reward-type", choices=("sparse", "dense", "pbrs"), default="sparse")
+    parser.add_argument("--reward_checkpoint", "--reward-checkpoint")
+    parser.add_argument("--reward_gaussian_h5", "--reward-gaussian-h5")
+    parser.add_argument("--reward_calibration_h5", "--reward-calibration-h5")
+    parser.add_argument("--reward_context_stride", "--reward-context-stride", type=int)
+    parser.add_argument("--reward_device", "--reward-device", default="cuda")
+    parser.add_argument("--reward_ood_threshold", "--reward-ood-threshold", type=float, default=0.05)
+    parser.add_argument("--reward_posterior_temperature", "--reward-posterior-temperature", type=float, default=1.0e4)
+    parser.add_argument("--reward_shaping_scale", "--reward-shaping-scale", type=float, default=1.0)
     return AttrDict(vars(parser.parse_args(argv)))
 
 

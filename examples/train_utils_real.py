@@ -13,7 +13,8 @@ from moviepy.editor import ImageSequenceClip
 
 
 def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_replay_buffer, replay_buffer, wandb_logger,
-                                       shard_fn=None, agent_dp=None, robot_config=None, collect_fn=None):
+                                       shard_fn=None, agent_dp=None, robot_config=None, collect_fn=None,
+                                       reward_plugin=None):
     if collect_fn is None:
         collect_fn = collect_traj
     replay_buffer_iterator = replay_buffer.get_iterator(variant.batch_size)
@@ -30,6 +31,9 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
     with tqdm(total=variant.max_steps, initial=0) as pbar:
         while i <= variant.max_steps:
             traj = collect_fn(variant, agent, env, i, agent_dp, wandb_logger, total_num_traj, robot_config)
+            if reward_plugin is not None:
+                reward_metrics = reward_plugin.apply(traj, env.prepare_progress_frame)
+                wandb_logger.log(reward_metrics, step=i)
             total_num_traj += 1
             add_online_data_to_buffer(variant, traj, online_replay_buffer)
             total_env_steps += traj['env_steps']
