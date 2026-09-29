@@ -51,7 +51,7 @@ class TorchPi0Service:
         self.prepare_attention_masks_4d = prepare_attention_masks_4d
 
     @classmethod
-    def from_checkpoint(cls, checkpoint, agentview_key, wrist_key):
+    def from_checkpoint(cls, checkpoint, agentview_key, wrist_key, device=None):
         from safetensors.torch import load_file
         from lerobot.configs import PreTrainedConfig
         from lerobot.policies.factory import make_pre_post_processors
@@ -64,6 +64,11 @@ class TorchPi0Service:
         config = PreTrainedConfig.from_pretrained(checkpoint)
         if config.type != "pi0":
             raise ValueError(f"Expected a LeRobot pi0 checkpoint, got {config.type}")
+        if device is not None:
+            requested_device = torch.device(device)
+            if requested_device.type == "cuda" and not torch.cuda.is_available():
+                raise RuntimeError(f"Requested pi0 device {device}, but PyTorch CUDA is unavailable")
+            config.device = str(requested_device)
 
         # Load strictly: some LeRobot releases return a random model when their
         # from_pretrained weight load fails, which is unsuitable for robot control.
@@ -72,7 +77,15 @@ class TorchPi0Service:
         state = policy._fix_pytorch_state_dict_keys(state, config)
         state = {key if key.startswith("model.") else f"model.{key}": value for key, value in state.items()}
         policy.load_state_dict(state, strict=True)
-        preprocessor, postprocessor = make_pre_post_processors(config, pretrained_path=str(checkpoint))
+        # A saved processor may refer to the training machine's CPU/GPU. Keep its
+        # normalization statistics but place observations on this policy device.
+        policy_device = str(next(policy.parameters()).device)
+        preprocessor, postprocessor = make_pre_post_processors(
+            config,
+            pretrained_path=str(checkpoint),
+            preprocessor_overrides={"device_processor": {"device": policy_device}},
+            postprocessor_overrides={"device_processor": {"device": "cpu"}},
+        )
         return cls(policy, preprocessor, postprocessor, agentview_key, wrist_key)
 
     @property
@@ -90,7 +103,9 @@ class TorchPi0Service:
         image = np.asarray(raw)
         if image.dtype != np.uint8 or image.ndim != 3 or image.shape[-1] != 3:
             raise ValueError(f"{name} must be an HWC uint8 RGB image, got {image.shape} {image.dtype}")
-        return torch.from_numpy(np.ascontiguousarray(image)).permute(2, 0, 1).float() / 255.0
+        # msgpack arrays can reference immutable byte buffers. Give PyTorch
+        # writable storage instead of aliasing the incoming network packet.
+        return torch.from_numpy(np.array(image, copy=True, order="C")).permute(2, 0, 1).float() / 255.0
 
     def _batch(self, obs):
         joint = np.asarray(obs["joint_position"], dtype=np.float32).reshape(-1)
@@ -141,11 +156,13 @@ class TorchPi0Service:
         if noise.shape != (1, self.horizon, self.noise_dim) or not np.isfinite(noise).all():
             raise ValueError(f"Expected finite noise (1, {self.horizon}, {self.noise_dim}), got {noise.shape}")
         images, masks, tokens, token_masks, state = self._model_inputs(self._batch(obs))
-        noise_tensor = torch.from_numpy(noise).to(self.device)
+        noise_tensor = torch.tensor(noise, device=self.device)
         actions = self.policy.model.sample_actions(
             images, masks, tokens, token_masks, state, noise=noise_tensor
         )[:, :, : self.action_dim]
         actions = self.postprocessor(actions)
+        if isinstance(actions, torch.Tensor):
+            actions = actions.detach().float().cpu().numpy()
         actions = np.asarray(actions, dtype=np.float32)
         if actions.shape != (1, self.horizon, self.action_dim) or not np.isfinite(actions).all():
             raise ValueError(f"Unexpected pi0 action shape: {actions.shape}")
@@ -181,10 +198,14 @@ def main():
     parser.add_argument("--checkpoint", required=True, help="Local LeRobot SFT checkpoint directory")
     parser.add_argument("--agentview-key", required=True, help="Agent-view image key in checkpoint config")
     parser.add_argument("--wrist-key", required=True, help="Right-wrist image key in checkpoint config")
+    parser.add_argument("--device", default=None, help="Override checkpoint device, e.g. cuda:0 or cpu")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-    service = TorchPi0Service.from_checkpoint(args.checkpoint, args.agentview_key, args.wrist_key)
+    service = TorchPi0Service.from_checkpoint(
+        args.checkpoint, args.agentview_key, args.wrist_key, device=args.device
+    )
+    logging.info("Loaded LeRobot pi0 on %s", service.device)
     asyncio.run(serve(service, args.host, args.port))
 
 

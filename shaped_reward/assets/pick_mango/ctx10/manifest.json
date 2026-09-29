@@ -1,0 +1,30 @@
+{
+  "context_stride": 10,
+  "epoch": 20000,
+  "source_run": "COMPOSITE_TCC_TEMPORAL_TRIPLET-pick_mango_vid-36vid_train-resnet50_conv4c-only_bn-20260925-050342-ctxstride10",
+  "fineprog_commit": "e9f6844",
+  "fineprog_worktree_dirty": true,
+  "dsrl_pi0_commit": "fc5e5e26424d406e1ec7c4f7603684f44b3f5557",
+  "embedding_normalization": "l2",
+  "input_embedding_dim": 128,
+  "pca_dim": 32,
+  "num_bins": 20,
+  "calibration_videos": 18,
+  "files": {
+    "encoder_epoch020000.pt": {
+      "source": "/home/user/zhangzk/projects/fineprog/checkpoint/COMPOSITE_TCC_TEMPORAL_TRIPLET-pick_mango_vid-36vid_train-resnet50_conv4c-only_bn-20260925-050342-ctxstride10/encoder_epoch020000.pt",
+      "bytes": 121693887,
+      "sha256": "6a243dbb961312f8fbc6a4b35802d8d485196195b72f3919d707c8a81184c801"
+    },
+    "calibration_embeddings.h5": {
+      "source": "/home/user/zhangzk/projects/fineprog/datasets/embeddings/COMPOSITE_TCC_TEMPORAL_TRIPLET-pick_mango_vid-36vid_train-resnet50_conv4c-only_bn-20260925-050342-ctxstride10/pick_mango_vid-18vid_calibration-embd.h5",
+      "bytes": 1196422,
+      "sha256": "c6bb0ac2c58f4d7382e9865db1abc9d5b5a65180ea93a66220078ed452a737d5"
+    },
+    "gaussian_progress_model.h5": {
+      "source": "/home/user/zhangzk/projects/fineprog/outputs/gaussian_progress_fitting/COMPOSITE_TCC_TEMPORAL_TRIPLET-pick_mango_vid-36vid_train-resnet50_conv4c-only_bn-20260925-050342-ctxstride10/pick_mango_vid-36vid_train-embd/20260929-160153/gaussian_progress_model-covariance_mode-independent-20260929-160153.h5",
+      "bytes": 388256,
+      "sha256": "c282987e9d26f81fc4cd88b7d351cf8321bcc2d84c86a3fb7b7add28452cbabe"
+    }
+  }
+}

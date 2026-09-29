@@ -41,7 +41,7 @@ def parse_args(argv=None):
     parser.add_argument("--reward_calibration_h5", "--reward-calibration-h5")
     parser.add_argument("--reward_context_stride", "--reward-context-stride", type=int)
     parser.add_argument("--reward_device", "--reward-device", default="cuda")
-    parser.add_argument("--reward_ood_threshold", "--reward-ood-threshold", type=float, default=0.05)
+    parser.add_argument("--reward_ood_threshold", "--reward-ood-threshold", type=float, default=0.5)
     parser.add_argument("--reward_posterior_temperature", "--reward-posterior-temperature", type=float, default=1.0e4)
     parser.add_argument("--reward_shaping_scale", "--reward-shaping-scale", type=float, default=1.0)
     return AttrDict(vars(parser.parse_args(argv)))

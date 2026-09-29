@@ -1,23 +1,97 @@
-<div align="center">
-
 # DSRL for π₀: Diffusion Steering via Reinforcement Learning
 
-## [[website](https://diffusion-steering.github.io)]      [[paper](https://arxiv.org/abs/2506.15799)]
+[项目主页](https://diffusion-steering.github.io) · [论文（CoRL 2025）](https://arxiv.org/abs/2506.15799)
 
-</div>
+以下为 Dobot 部署流程：训练端运行 JAX SAC 和 PyTorch progress reward，独立 LeRobot π₀ 服务提供推理。两端可部署在同一台或不同机器，分别使用独立环境。
 
+## Installation
 
-## Overview
-This repository provides the official implementation for our paper: [Steering Your Diffusion Policy with Latent Space Reinforcement Learning](https://arxiv.org/abs/2506.15799) (CoRL 2025).
+需要 Linux x86_64、NVIDIA GPU、兼容 CUDA 12.8 的驱动及 Conda。分机部署时两端均需克隆仓库，后续命令均在仓库根目录执行。
 
-Specifically, it contains a JAX-based implementation of DSRL (Diffusion Steering via Reinforcement Learning) for steering a pre-trained generalist policy, [π₀](https://github.com/Physical-Intelligence/openpi), across various environments, including:
-
-- **Simulation:** Libero, Aloha  
-- **Real Robot:** Franka
-
-If you find this repository useful for your research, please cite:
-
+```bash
+git clone https://github.com/V373/dsrl-pi0-dobot-prog.git --recurse-submodules
+cd dsrl-pi0-dobot-prog
 ```
+
+在训练机创建环境（Python 3.11、JAX 0.5.1、Torch 2.7.1+cu128），并下载 Git LFS 模型资产（约 235 MiB）：
+
+```bash
+conda env create -f environment.dobot-sac-gpu.yml
+conda activate dsrl_dobot_gpu
+git lfs install --local
+git lfs pull
+python -m pip check
+```
+
+依赖由 [requirements.dobot-sac-gpu.txt](requirements.dobot-sac-gpu.txt) 安装，包含本地 `jaxrl2` 和 `openpi-client`。
+
+## π₀ Server (Dobot)
+
+在推理机创建环境并启动服务。替换 checkpoint 路径和两路相机键；checkpoint 需包含 LeRobot 的 `model.safetensors`、config 和保存的 processors，状态/动作须为与 SFT 一致的 7 维格式。
+
+```bash
+conda create -n dobot_pi0_server python=3.12 pip -y
+conda activate dobot_pi0_server
+python -m pip install --extra-index-url https://download.pytorch.org/whl/cu128 \
+  'torch==2.7.1+cu128' 'torchvision==0.22.1+cu128' \
+  'lerobot[pi]==0.6.1' 'transformers==5.5.4' 'numpy==2.2.6' \
+  'websockets==17.1' -e ./openpi/packages/openpi-client
+python -m pip check
+
+CUDA_VISIBLE_DEVICES=0 python examples/serve_lerobot_pi0_dobot.py \
+  --checkpoint /path/to/dobot_lerobot_pi0_checkpoint \
+  --agentview-key 'SFT_AGENTVIEW_KEY' --wrist-key 'SFT_RIGHT_WRIST_KEY' \
+  --device cuda:0 --host 0.0.0.0 --port 8000
+```
+
+## Training (Real Dobot)
+
+启动前完成以下准备：
+
+- 补全 [DobotDataWrapper](examples/dobot_data_wrapper.py) 的 SDK 连接、相机采集、动作发送和启停接口；当前模板会抛出 `NotImplementedError`。相机预处理、状态/动作顺序与单位须匹配 SFT。
+- 将配套的 encoder、Gaussian 和 calibration 文件放入 `shaped_reward/assets/pick_mango/ctx10/`，详见 [资产说明](shaped_reward/assets/pick_mango/README.md)。Progress 输入为原始 `480×640 RGB uint8 topFullImg`，默认裁剪区域为 `[168:392, 256:480]`。
+- 确认训练机可访问 π₀ 服务的 `8000` 端口。下方 `pi0_host` 改为推理机 IP，同机部署用 `127.0.0.1`。
+
+在训练机的交互终端执行：
+
+```bash
+conda activate dsrl_dobot_gpu
+wandb login
+export CUDA_VISIBLE_DEVICES=0
+export JAX_PLATFORMS=cuda
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+pi0_host=127.0.0.1
+reward_ctx=10
+reward_assets="$PWD/shaped_reward/assets/pick_mango/ctx${reward_ctx}"
+python examples/launch_train_real_dobot.py \
+  --robot_factory examples.dobot_data_wrapper:create_robot \
+  --remote_host "$pi0_host" --remote_port 8000 \
+  --instruction 'pick mango' --query_freq 10 \
+  --reward_type pbrs --reward_device cuda:0 \
+  --reward_context_stride "$reward_ctx" \
+  --reward_checkpoint "$reward_assets/encoder_epoch020000.pt" \
+  --reward_gaussian_h5 "$reward_assets/gaussian_progress_model.h5" \
+  --reward_calibration_h5 "$reward_assets/calibration_embeddings.h5" \
+  --reward_ood_threshold 0.5
+```
+
+- 默认 25 Hz、每条轨迹最多 200 个控制步。按 `q` 提前结束采集，输入成功 `1` / 失败 `0`，再在 `(Pdb)` 输入 `c` 继续训练。
+- 使用 ctx20 时，将 `reward_ctx=20` 并准备 `ctx20/` 的三份配套文件，`query_freq` 保持 10。改为 `--reward_type sparse` 可关闭 progress reward，无需奖励模型文件。
+- 其他参数见 `python examples/launch_train_real_dobot.py --help`，或编辑 [启动脚本](examples/scripts/run_real_dobot.sh)。
+
+## Original OpenPI / Simulation
+
+Franka / LIBERO / Aloha 需另外配置 [OpenPI](openpi/README.md#installation) 和 [原版依赖](requirements.txt)。入口分别为 [run_real.sh](examples/scripts/run_real.sh)、[run_libero.sh](examples/scripts/run_libero.sh)、[run_aloha.sh](examples/scripts/run_aloha.sh)；Franka 另需 [DROID](https://github.com/droid-dataset/droid)。
+
+## Credits
+
+基于 [jaxrl2](https://github.com/ikostrikov/jaxrl2) 和 [PTR](https://github.com/Asap7772/PTR)。原版训练日志见 [W&B](https://wandb.ai/mitsuhiko/DSRL_pi0_public)。
+
+<details>
+<summary>论文引用</summary>
+
+```bibtex
 @article{wagenmaker2025steering,
   author    = {Andrew Wagenmaker and Mitsuhiko Nakamoto and Yunchu Zhang and Seohong Park and Waleed Yagoub and Anusha Nagabandi and Abhishek Gupta and Sergey Levine},
   title     = {Steering Your Diffusion Policy with Latent Space Reinforcement Learning},
@@ -26,94 +100,4 @@ If you find this repository useful for your research, please cite:
 }
 ```
 
-## Installation
-1. Create a conda environment:
-```
-conda create -n dsrl_pi0 python=3.11.11
-conda activate dsrl_pi0
-```
-
-2. Clone this repo with all submodules
-```
-git clone https://github.com/V373/dsrl-pi0-dobot-prog.git --recurse-submodules
-cd dsrl-pi0-dobot-prog
-```
-
-3. Install all packages and dependencies
-```
-pip install -e .
-pip install -r requirements.txt
-
-# install openpi
-pip install -e openpi
-pip install -e openpi/packages/openpi-client
-
-# install Libero
-pip install -e LIBERO
-
-# RTX 5090: pin compatible versions after installing openpi
-pip install "jax[cuda12]==0.5.1" "wandb[media]==0.19.9" "protobuf>=3.20.3,<6"
-pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu # needed for libero
-```
-
-## Training (Simulation)
-Libero
-```
-bash examples/scripts/run_libero.sh
-```
-Aloha
-```
-bash examples/scripts/run_aloha.sh
-```
-### Training Logs
-We provide sample W&B runs and logs: https://wandb.ai/mitsuhiko/DSRL_pi0_public
-
-## Training (Real)
-For real-world experiments, we use the remote hosting feature from pi0 (see [here](https://github.com/Physical-Intelligence/openpi/blob/main/docs/remote_inference.md)) which enables us to host the pi0 model on a higher-spec remote server, in case the robot's client machine is not powerful enough. 
-
-0. Setup Franka robot and install DROID package [[link](https://github.com/droid-dataset/droid.git)]
-
-1. [On the remote server] Host pi0 droid model on your remote server
-```
-cd openpi && python scripts/serve_policy.py --env=DROID
-```
-2. [On your robot client machine] Run DSRL
-```
-bash examples/scripts/run_real.sh
-```
-
-
-## Credits
-This repository is built upon [jaxrl2](https://github.com/ikostrikov/jaxrl2) and [PTR](https://github.com/Asap7772/PTR) repositories. 
-In case of any questions, bugs, suggestions or improvements, please feel free to contact me at nakamoto\[at\]berkeley\[dot\]edu 
-
-## Dobot 单臂真机训练（LeRobot π₀）
-
-先在推理机启动与 Dobot SFT 数据格式一致的 LeRobot PyTorch π₀ checkpoint（两路相机键填写 checkpoint 中的实际名称）：
-
-```bash
-python3 examples/serve_lerobot_pi0_dobot.py \
-  --checkpoint /path/to/lerobot-pi0-sft \
-  --agentview-key 'SFT_AGENTVIEW_KEY' --wrist-key 'SFT_RIGHT_WRIST_KEY' \
-  --host 0.0.0.0 --port 8000
-```
-
-在机器人端修改 `examples/scripts/run_real_dobot.sh`，再运行 `bash examples/scripts/run_real_dobot.sh`。主要参数都在该脚本中：
-
-- 接口与任务：`robot_factory`（默认 `examples.dobot_data_wrapper:create_robot`）、`remote_host`/`remote_port`、`instruction`，以及本机 GPU 的 `device_id`。
-- 采集：Dobot 启动脚本和 launcher 默认都使用 `control_hz=25`；`max_timesteps=200` 为**每条轨迹最多控制步数**，不是实际时间超时；`query_freq=10` 为 π₀ 查询间隔，须不大于 checkpoint 的动作序列长度。
-- SAC：`resize_image=128`、`batch_size=256`、`discount=0.99`、`multi_grad_step=30`；`max_steps=500000` 计 **SAC 梯度更新次数**，不是机器人步数。
-
-一轮 online 训练：
-
-1. 每个控制步读取外部视角、右腕视角和 6 维关节 + 1 维夹爪状态。每隔 `query_freq` 步，用两路图像拼接的像素（默认 `(1, 128, 128, 6, 1)`）和 `(1, 7+F, 1)` 状态（含 π₀ 前缀特征）生成 `(1, D)` 噪声：首条轨迹随机采样，随后由 SAC 输出。噪声扩展为 `(1, H, D)` 后交给 π₀，得到 `(H, 7)` 动作序列并逐步执行。`H/D/F` 由服务从 checkpoint 读取。
-2. 达到步数上限或按 `q`（第 0 步忽略）后，机器人停止；操作员输入 `1`/`0`，采集末尾观测、保存视频并重置。回放池每次 π₀ 查询存一条 SAC 噪声转移，折扣为 `discount ** 该次查询实际控制步数`；成功轨迹末步的奖励/mask 为 `(0, 0)`，其余为 `(-1, 1)`。在 `pdb` 中输入 `c` 才继续入池和训练。
-3. 首条轨迹后执行 5000 次 SAC 更新；此后每条轨迹执行 `转移数 × multi_grad_step` 次，随机采样 `batch_size` 条转移更新 SAC。完整 200 控制步通常对应 20 条转移、后续 600 次更新。
-
-SDK 接口集中在 `examples/dobot_data_wrapper.py`：补全连接与相机初始化、`_receive_observation()`、`_send_action()`、`reset()`、`halt()`、`close()`。观测需提供 `external_rgb`、`wrist_rgb`（HWC、`uint8`、RGB）、`joint_position`（6 维）和 `gripper_position`（1 维）；`step(action)` 接收单条 7 维 π₀ 动作。关节/夹爪顺序与单位、动作含义、相机预处理必须匹配 SFT checkpoint，发送动作时还需校验硬件限位与命令回执。当前模板未接入 SDK，不能直接运行真机训练。
-
-### Dobot shaped reward（可选）
-
-在 `examples/scripts/run_real_dobot.sh` 中将 `reward_type` 改为 `dense` 或 `pbrs`，并填写 `reward_checkpoint`、`reward_gaussian_h5`、`reward_calibration_h5` 三个来自同一 FineProg 实验的文件。`reward_context_stride` 填模型训练时的帧间隔（如 10 或 20）；它必须是 `query_freq` 的正整数倍。`reward_device` 默认 `cuda`，也可显式设为 `cpu`。推理端需要 PyTorch、与其版本匹配的 `torchvision`、`h5py` 和 `scipy`。不启用插件时保持原有 `-1/0` reward。
-
-插件只在 π₀ 查询位置读取外部相机帧。`DobotDataWrapper.prepare_progress_frame()` 从未经裁剪的 `640×480` RGB `topFullImg` 取 `[168:392, 256:480]`，得到与 FineProg `fruit_expert_videos_260917` 一致的 `224×224` 模型输入。rollout 结束后，插件推理这些查询帧的 progress，并在入池前赋值 reward：`dense = sparse + scale × progress`；`pbrs = sparse + scale × (discount^实际控制步数 × mask × next_progress − progress)`。这里 shaped reward 的 sparse 为成功末次 `1`、其余 `0`。末尾观测仍存入 replay，但不参与 progress 推理；最后一条转移需要 `next_progress` 时复用最后一次查询的 progress。失败末次的 `mask` 保持为 `1`。
+</details>

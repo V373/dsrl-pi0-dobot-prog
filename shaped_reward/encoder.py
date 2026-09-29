@@ -44,7 +44,8 @@ class TCCTemporalEmbedder(nn.Module):
     def forward(self, features):
         batch, clip_len, context_size, channels, height, width = features.shape
         features = features.permute(0, 1, 3, 2, 4, 5).reshape(
-            batch * clip_len, channels, context_size, height, width)
+            batch * clip_len, channels, context_size, height, width
+        ).contiguous(memory_format=torch.channels_last_3d)
         features = self.relu_1(self.conv3d_1(features))
         features = self.relu_2(self.conv3d_2(features))
         features = F.adaptive_max_pool3d(features, output_size=1)
@@ -63,6 +64,10 @@ class TCCEncoder(nn.Module):
         self.embedding_normalization = embedding_normalization
         self.backbone = ResNet50Conv4cBackbone()
         self.temporal_embedder = TCCTemporalEmbedder(embedding_dim)
+        # Match FineProg's convolution layouts as well as its architecture.
+        # CUDA can select numerically different kernels for other layouts.
+        self.backbone.to(memory_format=torch.channels_last)
+        self.temporal_embedder.to(memory_format=torch.channels_last_3d)
 
     def forward(self, frames):
         if frames.ndim != 6:
@@ -76,7 +81,8 @@ class TCCEncoder(nn.Module):
                 f"got {tuple(frames.shape)}")
 
         flat = frames.reshape(batch * clip_len * context_size,
-                              channels, height, width)
+                              channels, height, width).contiguous(
+                                  memory_format=torch.channels_last)
         features = self.backbone(flat)
         features = features.reshape(batch, clip_len, context_size,
                                     *features.shape[1:])

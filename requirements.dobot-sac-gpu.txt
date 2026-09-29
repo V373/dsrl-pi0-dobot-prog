@@ -1,0 +1,49 @@
+# Dobot client: JAX GPU SAC + PyTorch GPU progress reward.
+# Linux x86_64, Python 3.11.11; run pip from the repository root.
+# No local pi0 model, LeRobot, FineProg installation, or simulator is needed.
+# This is a scoped runtime requirements list, not the full original env freeze.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# Keep the tested JAX API (including PositionalSharding) and SAC stack.
+jax[cuda12]==0.5.1
+flax==0.10.2
+optax==0.2.4
+distrax==0.1.5
+chex==0.1.90
+orbax-checkpoint==0.11.1
+tensorflow-probability==0.25.0
+numpy==1.26.4
+scipy==1.15.2
+ml_dtypes==0.5.1
+
+# CUDA wheels, including support for the tested RTX 5090.
+# Torch pins its matching CUDA runtime libraries and Triton transitively.
+# JAX also needs the nvcc wheel; pin the version in the tested environment.
+torch==2.7.1+cu128
+torchvision==0.22.1+cu128
+nvidia-cuda-nvcc-cu12==12.9.86
+h5py==3.13.0
+
+# Required by the CURRENT training entry point / TF-present TFP imports.
+# Do not use tensorflow[and-cuda]: train_real_dobot disables TensorFlow GPU use.
+tensorflow==2.19.0
+tf_keras==2.19.0
+protobuf==5.29.2
+
+# Robot spaces, training logs, and rollout/progress video output.
+gym==0.26.2
+wandb==0.19.9
+matplotlib==3.9.3
+moviepy==1.0.3
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+opencv-python==4.11.0.86
+pillow==12.3.0
+tqdm==4.70.1
+python-dateutil==2.9.0.post0
+
+# Remote pi0 protocol only. Use this checkout's client implementation.
+websockets==17.1
+msgpack==1.2.2
+-e ./openpi/packages/openpi-client
+-e .

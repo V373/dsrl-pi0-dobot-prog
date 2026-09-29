@@ -1,0 +1,10 @@
+name: dsrl_dobot_gpu
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11.11
+  - pip
+  - git-lfs
+  - pip:
+      # Run `conda env create -f environment.dobot-sac-gpu.yml` at repo root.
+      - -r requirements.dobot-sac-gpu.txt

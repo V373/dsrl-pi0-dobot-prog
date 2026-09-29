@@ -17,7 +17,7 @@ class DobotShapedReward:
         query_freq,
         discount,
         device="cpu",
-        ood_p_value_threshold=0.05,
+        ood_p_value_threshold=0.5,
         posterior_temperature=1.0e4,
         shaping_scale=1.0,
     ):
